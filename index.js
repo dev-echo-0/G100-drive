@@ -110,7 +110,12 @@ app.get('/dashboard', (req, res) => {
 // 4. DIRECT STREAMING UPLOAD ROUTE
 // ==========================================
 app.post('/upload-stream', (req, res) => {
-    const busboy = Busboy({ headers: req.headers });
+   // const busboy = Busboy({ headers: req.headers });
+    const busboy = Busboy({ 
+    headers: req.headers,
+    highWaterMark: 10 * 1024 * 1024 // Ab Node.js 2 MB ka chunk ek sath padhega
+});
+    
     let uploadPromise = null;
 
     busboy.on('file', (fieldname, fileStream, fileInfo) => {
