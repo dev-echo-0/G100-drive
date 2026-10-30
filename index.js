@@ -1,53 +1,44 @@
-const fs = require('fs');
-const path = require('path');
+const { QuickDB } = require("quick.db");
+// const db = new QuickDB(); // will make a json.sqlite in the root folder
+// if you want to specify a path you can do so like this
+const db = new QuickDB({ filePath: "/etc/secrets/test.sqlite" });
 
-// Dummy file ka path
-const filePath = path.join(__dirname, 'dummy_test_file.bin');
+(async () => {
+    // Init the database, this is always needed!
+    await db.init();
 
-// 10 MB ka dummy data chunk (RAM ko bachane ke liye sirf 10MB memory me rakhenge)
-const chunkSize = 10 * 1024 * 1024; 
-const chunk = Buffer.alloc(chunkSize, '0'); // '0' se bhara hua buffer
+    // self calling async function just to get async
+    // Setting an object in the database:
+    await db.set("userInfo", { difficulty: "Easy" });
+    // -> { difficulty: 'Easy' }
 
-let totalWritten = 0;
+    // Getting an object from the database:
+    await db.get("userInfo");
+    // -> { difficulty: 'Easy' }
 
-console.log("🚀 Render Storage Test Start kar rahe hain...\n");
+    // Getting an object property from the database:
+    await db.get("userInfo.difficulty");
+    // -> 'Easy'
 
-try {
-    // Agar pehle se koi purani test file hai, toh usko delete kar do
-    if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-    }
+    // Setting an object in the database:
+    await db.set("userInfo", { difficulty: "Easy" });
+    // -> { difficulty: 'Easy' }
 
-    // Infinite loop, jab tak storage full na ho jaye
-    while (true) {
-        // File mein 10MB data add karein (append)
-        fs.appendFileSync(filePath, chunk);
-        totalWritten += 10;
-        
-        // Har 50 MB ke baad console me progress print karein
-        if (totalWritten % 50 === 0) {
-            console.log(`⏳ Ab tak ${totalWritten} MB data temporary disk par save ho chuka hai...`);
-        }
+    // Pushing an element to an array (that doesn't exist yet) in an object:
+    await db.push("userInfo.items", "Sword");
+    // -> { difficulty: 'Easy', items: ['Sword'] }
 
-        // Safety limit (Maarlo Render ne zyada space de di, toh 4000MB/4GB pe rok denge)
-        if (totalWritten >= 4000) {
-            console.log("\n✅ 4000 MB (4 GB) limit cross ho gayi. Test successfully stopped.");
-            break;
-        }
-    }
-} catch (error) {
-    // ENOSPC ka matlab hai 'Error No Space' (Storage Full)
-    if (error.code === 'ENOSPC') {
-        console.log(`\n❌ DISK FULL ERROR!`);
-        console.log(`🎯 FINAL RESULT: Render ke is instance par lagbhag **${totalWritten} MB** free storage available hai.`);
-    } else {
-        console.log("\n⚠️ Koi aur error aayi:", error.message);
-    }
-} finally {
-    // Test ke baad storage clear karna zaroori hai, warna Render bot evict (band) kar dega
-    console.log("\n🧹 Cleanup: Dummy file delete ki jaa rahi hai...");
-    if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-        console.log("✅ Cleanup Done! Disk wapas free ho gayi.");
-    }
-}
+    // Adding to a number (that doesn't exist yet) in an object:
+    await db.add("userInfo.balance", 500);
+    // -> { difficulty: 'Easy', items: ['Sword'], balance: 500 }
+
+    // Repeating previous examples:
+    await db.push("userInfo.items", "Watch");
+    // -> { difficulty: 'Easy', items: ['Sword', 'Watch'], balance: 500 }
+    await db.add("userInfo.balance", 500);
+    // -> { difficulty: 'Easy', items: ['Sword', 'Watch'], balance: 1000 }
+
+    // Fetching individual properties
+    await db.get("userInfo.balance"); // -> 1000
+    await db.get("userInfo.items"); // ['Sword', 'Watch']
+})();
