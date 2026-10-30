@@ -7,7 +7,7 @@ const PORT = 3000;
 
 // 1. Service Account Setup (credentials.json aapke folder me honi chahiye)
 const auth = new google.auth.GoogleAuth({
-    keyFile: 'credentials.json',
+    keyFile: '/etc/secrets/x.json',
     scopes: ['https://www.googleapis.com/auth/drive'] 
 });
 const drive = google.drive({ version: 'v3', auth });
