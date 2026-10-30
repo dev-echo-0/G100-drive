@@ -5,130 +5,100 @@ const Busboy = require('busboy');
 const app = express();
 const PORT = 3000;
 
-// ==========================================
-// 1. YAHAN APNI KEYS DAALEIN (Console Se)
-// ==========================================
-const CLIENT_ID = process.env['CLIENT_ID']; 
-const CLIENT_SECRET = process.env['CLIENT_SECRET'];
-const REDIRECT_URI = process.env['REDIRECT_URI'];
-
-const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
-
-// ==========================================
-// 2. OAUTH LOGIN ROUTES
-// ==========================================
-// Home route: User ko login link dikhayega
-app.get('/', (req, res) => {
-    res.send(`<h2>Google Drive File Uploader</h2>
-              <a href="/login" style="padding:10px; background:blue; color:white; text-decoration:none;">Login with Google</a>`);
+// 1. Service Account Setup (credentials.json aapke folder me honi chahiye)
+const auth = new google.auth.GoogleAuth({
+    keyFile: 'credentials.json',
+    scopes: ['https://www.googleapis.com/auth/drive'] 
 });
+const drive = google.drive({ version: 'v3', auth });
 
-// Login route: Google login page par bhejega
-app.get('/login', (req, res) => {
-    const url = oauth2Client.generateAuthUrl({
-        access_type: 'offline',
-        scope: ['https://www.googleapis.com/auth/drive'] // Drive ki permission
-    });
-    res.redirect(url);
-});
-
-// Callback route: Login success hone ke baad tokens save karega
-app.get('/oauth2callback', async (req, res) => {
-    const { code } = req.query;
+// 2. Dashboard Route (List Files + Upload Form)
+app.get('/', async (req, res) => {
     try {
-        const { tokens } = await oauth2Client.getToken(code);
-        oauth2Client.setCredentials(tokens); // Token set kar diya
-        res.redirect('/dashboard'); // Dashboard par bhej diya
-    } catch (error) {
-        res.status(500).send('Login failed: ' + error.message);
-    }
-});
-
-// ==========================================
-// 3. DASHBOARD ROUTE (With Progress Bar)
-// ==========================================
-app.get('/dashboard', (req, res) => {
-    // Agar login nahi kiya hai toh wapas bhej do
-    if (!oauth2Client.credentials || !oauth2Client.credentials.access_token) {
-        return res.redirect('/');
-    }
-
-    res.send(`
-        <html>
-        <head><title>Dashboard</title></head>
-        <body style="font-family: Arial; padding: 20px;">
-            <h2>Upload Any File to Drive (Direct Streaming)</h2>
-            <input type="file" id="fileInput" required />
-            <button onclick="uploadFile()" style="padding: 5px 15px;">Upload</button>
+        // Service Account ki Root Drive se files list karna
+        const response = await drive.files.list({
+            // 'root' in parents ka matlab hai jo files kisi folder me nahi, bahar padi hain
+            q: "'root' in parents and trashed=false",
+            fields: 'files(id, name, size, mimeType)',
+            orderBy: 'createdTime desc'
+        });
+        
+        const files = response.data.files;
+        
+        // HTML UI
+        let html = `
+            <html lang="en">
+            <head>
+                <title>Service Account Root Drive</title>
+                <style>
+                    body { font-family: Arial, sans-serif; padding: 20px; background: #f4f4f9; }
+                    .box { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
+                    button { background: #007bff; color: white; border: none; padding: 10px 15px; cursor: pointer; border-radius: 4px; }
+                    button:hover { background: #0056b3; }
+                    table { width: 100%; border-collapse: collapse; background: white; }
+                    th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+                    th { background: #333; color: white; }
+                </style>
+            </head>
+            <body>
             
-            <div style="margin-top: 20px;">
-                <progress id="progressBar" value="0" max="100" style="width: 300px; height: 20px;"></progress>
-                <span id="status" style="margin-left: 10px; font-weight: bold;">0%</span>
+            <div class="box">
+                <h2>Upload File (Direct to Service Account Root)</h2>
+                <form action="/upload" method="POST" enctype="multipart/form-data">
+                    <input type="file" name="myFile" required />
+                    <button type="submit">Upload</button>
+                </form>
             </div>
 
-            <script>
-                function uploadFile() {
-                    const file = document.getElementById('fileInput').files[0];
-                    if (!file) return alert('Pehle koi file select karein!');
+            <div class="box">
+                <h3>Root Drive Files (${files.length})</h3>
+                <table>
+                    <tr>
+                        <th>File Name</th>
+                        <th>Size</th>
+                        <th>File ID</th>
+                    </tr>
+        `;
 
-                    const formData = new FormData();
-                    formData.append('myFile', file);
+        if (files.length === 0) {
+            html += `<tr><td colspan="3" style="text-align:center;">Root drive bilkul khali hai.</td></tr>`;
+        } else {
+            files.forEach(file => {
+                const sizeStr = file.size ? (file.size / 1024 / 1024).toFixed(2) + ' MB' : 'Unknown';
+                html += `
+                    <tr>
+                        <td>${file.name}</td>
+                        <td>${sizeStr}</td>
+                        <td>${file.id}</td>
+                    </tr>
+                `;
+            });
+        }
 
-                    const xhr = new XMLHttpRequest();
-                    
-                    // Progress Update karna
-                    xhr.upload.addEventListener('progress', (event) => {
-                        if (event.lengthComputable) {
-                            const percent = Math.round((event.loaded / event.total) * 100);
-                            document.getElementById('progressBar').value = percent;
-                            document.getElementById('status').innerText = percent + '% Uploaded';
-                        }
-                    });
+        html += `</table></div></body></html>`;
+        res.send(html);
 
-                    // Upload Complete hone par
-                    xhr.onload = () => {
-                        if (xhr.status === 200) {
-                            document.getElementById('status').innerText = 'Upload Complete! ✅';
-                            alert(xhr.responseText); // Success message ya File ID
-                        } else {
-                            document.getElementById('status').innerText = 'Error! ❌';
-                            alert('Upload failed: ' + xhr.responseText);
-                        }
-                    };
-
-                    // Backend par bhejna
-                    xhr.open('POST', '/upload-stream', true);
-                    xhr.send(formData);
-                }
-            </script>
-        </body>
-        </html>
-    `);
+    } catch (error) {
+        res.status(500).send('Error fetching files: ' + error.message);
+    }
 });
 
-// ==========================================
-// 4. DIRECT STREAMING UPLOAD ROUTE
-// ==========================================
-app.post('/upload-stream', (req, res) => {
-   // const busboy = Busboy({ headers: req.headers });
-    const busboy = Busboy({ 
-    headers: req.headers,
-    highWaterMark: 10 * 1024 * 1024 // Ab Node.js 2 MB ka chunk ek sath padhega
-});
-    
+// 3. File Upload Route (Streaming)
+app.post('/upload', (req, res) => {
+    const busboy = Busboy({ headers: req.headers, highWaterMark: 2 * 1024 * 1024 }); 
     let uploadPromise = null;
 
     busboy.on('file', (fieldname, fileStream, fileInfo) => {
-        console.log(`Bina RAM bhare upload start ho raha hai: ${fileInfo.filename}`);
-
-        const drive = google.drive({ version: 'v3', auth: oauth2Client });
+        console.log(`Uploading to Root: ${fileInfo.filename}`);
         
-        // Direct stream ko Drive api me dalna
         uploadPromise = drive.files.create({
-            requestBody: { name: fileInfo.filename },
+            requestBody: { 
+                name: fileInfo.filename,
+                // parents: [FOLDER_ID] hata diya, ab default ye "root" me jayega
+            },
             media: {
                 mimeType: fileInfo.mimeType,
-                body: fileStream // 🔥 Yahi pipe ho raha hai seedha Drive ko
+                body: fileStream
             },
         });
     });
@@ -136,26 +106,21 @@ app.post('/upload-stream', (req, res) => {
     busboy.on('finish', async () => {
         try {
             if (uploadPromise) {
-                const response = await uploadPromise;
-                console.log('Upload Done!');
-                res.status(200).send(`File upload ho gayi! Google Drive check karein. (ID: ${response.data.id})`);
+                await uploadPromise;
+                // Upload complete hone par turant dashboard reload karega
+                res.redirect('/');
             } else {
-                res.status(400).send('Koi file nahi mili.');
+                res.status(400).send('File missing.');
             }
         } catch (error) {
-            console.error('Drive API Error:', error.message);
-            res.status(500).send(error.message);
+            console.error(error);
+            res.status(500).send('Upload Failed: ' + error.message);
         }
     });
 
-    // Browser se aane wale data ko busboy (postman) me dalna
     req.pipe(busboy);
 });
 
-// ==========================================
-// SERVER START
-// ==========================================
 app.listen(PORT, () => {
-    console.log(`✅ Server is running!`);
-    console.log(`👉 Apne browser mein open karein: http://localhost:${PORT}`);
+    console.log(`✅ Server is running! Browser mein open karein: http://localhost:${PORT}`);
 });
